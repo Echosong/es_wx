@@ -1,0 +1,328 @@
+﻿//wx 微信库
+namespace wx{
+	import inet.http;
+	import time;
+	import config;
+	import web.json;
+
+	var httpClient = inet.http();
+	
+	var wxVersion = "";
+	
+	globalSynckey = "";
+	globalUser = "";
+	globalInitJson = {};
+	
+	getRand = function(){
+		import math;
+		return  tostring(tonumber(time.now())) ++ tostring( math.random(100000, 999999))
+	}
+
+	//格式化字符串
+	parseInit = function(xmlStr){
+		import string.xml;
+		var xmls = string.xml(xmlStr)
+		var ret =xmls.queryEle(
+			tagName = "ret";
+		).innerText();
+		if(ret ==0){
+			config.__initWX.skey = xmls.queryEle(tagName = "skey").innerText();	
+			config.__initWX.wxsid = xmls.queryEle(tagName = "wxsid").innerText();	
+			config.__initWX.wxuin = xmls.queryEle(tagName = "wxuin").innerText();	
+			config.__initWX.pass_ticket = xmls.queryEle(tagName = "pass_ticket").innerText();	
+			config.__initWX.isgrayscale = xmls.queryEle(tagName = "isgrayscale").innerText();	
+			return  true; 
+		}else{
+			return  false; 
+		}
+	}
+	
+	
+	var postWxInit = function(){
+		var _,tm = ::Kernel32.GetSystemTime( time())
+		var wtime = tonumber( time.now() ) * 1000 + tm.milliseconds
+		
+		var url = "https://wx"++wxVersion++".qq.com/cgi-bin/mmwebwx-bin/webwxinit?r="++wtime++"&lang=zh_CN"
+		var url = url+"&pass_ticket="+config.__initWX.pass_ticket;
+		var postInfo = ..string.format( '{"BaseRequest":{"Uin":"%s","Sid":"%s","Skey":"%s","DeviceID":"%s"}}',
+			config.__initWX.wxuin,config.__initWX.wxsid, config.__initWX.skey, "e"++getRand()	
+		)
+		var postResult = httpClient.post(url, postInfo);
+		return  postResult, postInfo; 
+		
+	}
+	
+	//微信退出登录
+	logout = function(){
+		var url =  "https://wx"++wxVersion++".qq.com/cgi-bin/mmwebwx-bin/webwxlogout?redirect=1&type=1&skey="++config.__initWX.skey;
+		var postInfo = ..string.format("sid=%s&uin=%s",config.__initWX.wxsid,config.__initWX.wxuin);
+		var postResult = httpClient.post(url, postInfo);
+	}
+	
+
+	
+	//微信初始化
+	initWx = function(){
+		import web.json;
+		
+		var  postResult, postInfo = postWxInit();
+		
+		
+		var postJson = web.json.parse(postResult);
+		
+		if(#postJson.ContactList < 3){
+			wxVersion = "2";
+			postResult, postInfo = postWxInit();
+			postJson = web.json.parse(postResult);	
+		}
+		
+		
+		list = postJson.SyncKey.List;
+		globalSynckey = web.json.stringify(postJson.SyncKey);
+		
+		synckeyStr = "";
+		for(i=1;#list;1){
+			
+			synckeyStr += "|"+list[i].Key++"_"++list[i].Val
+		}
+		
+		synckeyStr = ..string.right(synckeyStr,(#synckeyStr)-1)
+	
+		config.__initWX.synckey = synckeyStr;
+		globalUser = postJson.User;	
+		config.__initWX.globalUser = postJson.User;
+		globalInitJson = postInfo;
+		config.__initWX.globalInitJson = postInfo;
+		config.__initWX.wxVersion = wxVersion;
+		config.__initWX.globalSynckey = globalSynckey;
+		return  config.__initWX.synckey, postJson.User, postInfo; 
+	
+	}
+	
+	var _wtime = 0;
+	var _messageSynckey = "";
+	var _synckeyJson = "";
+	
+	//初始化同步消息
+	syncCheck = function(config){
+		import web;
+		import inet.url;
+		var _,tm = ::Kernel32.GetSystemTime( time())
+		var wtime = tonumber( time.now() ) * 1000 + tm.milliseconds
+		
+		_wtime = wtime;
+		if(_messageSynckey== ""){
+			_messageSynckey = config.synckey;
+		}
+		
+		var url = "https://webpush.wx"++config.wxVersion++".qq.com/cgi-bin/mmwebwx-bin/synccheck?"; 
+		var url = ..string.format("%ssid=%s&uin=%s&synckey=%s&r=%s&skey=%s&deviceid=%s&_=%s",
+			url,
+			config.wxsid,
+			config.wxuin,
+			inet.url.encodeUri(_messageSynckey),
+			tostring(wtime),
+			inet.url.encodeUri(config.skey),
+			"e"++getRand(),
+			tostring(wtime)
+		)
+		httpClient.setTimeouts(1000,5000,5000);
+		var result = httpClient.get(url);
+		return  result; 
+	}
+	
+	//获取群
+	getGroupList = function(){
+		import web.json;
+		
+		var _,tm = ::Kernel32.GetSystemTime( time())
+		var wtime = tonumber( time.now() ) * 1000 + tm.milliseconds
+		
+		var url = "https://wx"++wxVersion++".qq.com/cgi-bin/mmwebwx-bin/webwxgetcontact?";
+		var url = ..string.format("%spass_ticket=%s&skey=%s&r=%s&lang=zh_CN",
+								url,
+								config.__initWX.pass_ticket,
+								inet.url.encodeUri(config.__initWX.skey),
+								wtime
+								);
+		var result = httpClient.get(url);
+		var groupJson = web.json.parse(result);
+		var list = groupJson.MemberList;
+		var groupList = {};
+		for(i=1;#list;1){
+			if(..string.left( ..string.trim(list[i].UserName),2) == "@@"){
+				..table.push(groupList, list[i]);
+			}
+		}
+		return  groupList; 							
+	}
+	
+	//获取组用户列表
+	getGroupMemberList = function(userName, chatRoomId){
+		
+		import web.json;
+		//import io;
+		//io.open();
+		var _,tm = ::Kernel32.GetSystemTime( time())
+		var wtime = tonumber( time.now() ) * 1000 + tm.milliseconds
+		
+		var url = "https://wx"++wxVersion++".qq.com/cgi-bin/mmwebwx-bin/webwxbatchgetcontact?type=ex";
+		var url = ..string.format("%s&r=%s&lang=zh_CN&pass_ticket=%s",
+							url,
+							wtime,
+							config.__initWX.pass_ticket 
+						 );
+		
+		
+		var postInfo = ..string.format( '{"BaseRequest":{"Uin":"%s","Sid":"%s","Skey":"%s","DeviceID":"%s"}, "Count":1,"List":[{"UserName":"%s", "ChatRoomId":"%s"} ]}',
+			config.__initWX.wxuin,config.__initWX.wxsid, config.__initWX.skey, "e"++getRand(),
+			userName, ""	
+		)
+		var result = httpClient.post(url,postInfo);
+		
+		
+		
+		var memberList = web.json.parse(result);
+		var memberList = memberList.ContactList[1].MemberList;
+		
+		//io.print(web.json.stringify(memberList));
+		var messageGroupList = {};
+		for(k,v in memberList){
+			var item = {username= v.UserName; nick=v.NickName};
+			..table.push(messageGroupList, item);			
+		}
+		..string.save("grouplist.log", web.json.stringify(messageGroupList));
+		config.__initWX.globalGroupMemberList= messageGroupList;
+		
+		return  result; 
+	}
+	
+	
+	//获取制定的消息
+	getMessage = function(config, revList){
+		
+		var messageList = revList.AddMsgList;
+		
+		//获取该组成员
+		var revMessageList  ={};
+		var group = config.globalGroup;
+		for(i=1; #messageList;1){
+			var item = messageList[i];
+			if(item.FromUserName == group.UserName){
+				if(..string.indexOf(item.Content,":")== null){
+					continue ;
+				}
+				var content = ..string.split(item.Content,":");
+				var username = content[1];
+				var nick = "";
+				for(k,v in config.globalGroupMemberList){
+					if(username == v.username){
+						nick = v.nick;
+					}
+				}
+				var message = ..string.sub(content[2],6);
+				var message = {group=group.NickName; nick=nick; message=message}
+				..table.push(revMessageList, message);	
+			}
+		}
+		
+		return revMessageList; 
+	}
+	
+	
+	
+	
+	//同步服务器消息 
+	
+	synMessage = function(config){
+		
+		import web.json;
+		var checkStr =  syncCheck(config);
+		if(#checkStr < 10){
+			return  {code=-6;message="暂无最新信息"}; 
+		}
+		
+		checkStr = ..string.sub(checkStr, ..string.indexOf(checkStr, '{'), #checkStr);
+	
+		var checkJson =web.json.parse(checkStr);
+		
+		if(checkJson.retcode !=0){
+			return  {code=-5;message="由于微信跟服务器交换出问题，请关闭软件重新登录软件"}; 
+		}
+		
+		if( checkJson.selector != 2  and checkJson.selector !=6){
+			return {code=-6;message="暂无最新信息"}; 
+		}
+		var _,tm = ::Kernel32.GetSystemTime( time())
+		var wtime = tonumber( time.now() ) * 1000 + tm.milliseconds
+		
+		var url=..string.format( "https://wx"++config.wxVersion++".qq.com/cgi-bin/mmwebwx-bin/webwxsync?sid=%s&lang=zh_CN&skey=%s&pass_ticket=%s&r=%s",
+			config.wxsid,
+			config.skey,
+			config.pass_ticket,
+			wtime	
+		);
+		
+		if(_synckeyJson == ""){
+			_synckeyJson = config.globalSynckey;
+		}
+		
+		var rand = getRand();
+		 var globalInitJson = config.globalInitJson;
+		 globalInitJson = ..string.sub(globalInitJson, 2,  (#globalInitJson)-1);
+		var postInfo = '{#initJson,"SyncKey":#syncKeyJson,"rr":'++rand++'}'
+			postInfo = ..string.replace(postInfo, "#initJson", globalInitJson);
+			postInfo = ..string.replace(postInfo, "#syncKeyJson", _synckeyJson);
+			
+		var revListJson = httpClient.post(url, postInfo);
+		
+		var revList = web.json.parse(revListJson);
+		
+		list = revList.SyncKey.List;
+		
+		synckeyStr = "";
+		for(i=1;#list;1){
+			
+			synckeyStr += "|"+list[i].Key++"_"++list[i].Val
+		}
+		synckeyStr = ..string.right(synckeyStr,(#synckeyStr)-1)
+		
+		_messageSynckey = synckeyStr;
+		_synckeyJson = web.json.stringify(revList.SyncKey);
+		
+		var revMessage = getMessage(config, revList);
+	
+		return {code=0; message = revMessage};
+		 
+	}
+	
+	
+	//发送信息
+	sendMessage = function(content, fromName, toUsername, initJson, config){
+		var url = ..string.format("https://wx"++config.wxVersion++".qq.com/cgi-bin/mmwebwx-bin/webwxsendmsg?pass_ticket=%s",
+			config.pass_ticket
+		);
+		
+		initJson = ..string.sub(initJson, 2,  (#initJson)-1);
+		
+		var rand = getRand();
+		
+		var postInfo ='{"Msg":{"Type":1,"Content":"#content","FromUserName":"#FromUserName","ToUserName":"#ToUserName","LocalID":"'++rand++'","ClientMsgId":"'++rand++'"},#initJson}';
+		
+		postInfo = ..string.replace(postInfo, "#content", content);
+		postInfo = ..string.replace(postInfo, "#FromUserName", fromName);
+		postInfo = ..string.replace(postInfo, "#ToUserName", toUsername);
+		postInfo = ..string.replace(postInfo, "#initJson", initJson);
+		httpClient.setTimeouts(1000,10000,10000);
+		var result = httpClient.post(url, postInfo);
+		var retFlg = false;
+		if(result !== null){
+			resultJson = web.json.parse(result);
+			if(resultJson.BaseResponse.Ret == 0){
+				retFlg = true; 
+			}
+		}
+		return  retFlg; 
+	}
+		
+}
